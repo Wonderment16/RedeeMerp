@@ -1,12 +1,16 @@
-import Voice from "@react-native-voice/voice";
+import {
+  ExpoSpeechRecognitionModule,
+  type ExpoSpeechRecognitionErrorEvent,
+  type ExpoSpeechRecognitionResultEvent,
+} from "expo-speech-recognition";
 import { setAudioModeAsync as setExpoAudioModeAsync } from "expo-audio";
 import * as Speech from "expo-speech";
 import { Platform } from "react-native";
-import { Audio } from "expo-av";
 
 // Configure audio session on iOS for guidance playback when locked/silent
 let audioSessionConfigured = false;
 type SpeechPriority = "critical" | "important" | "normal";
+type SpeechListener = { remove: () => void };
 
 type QueuedSpeech = {
   text: string;
@@ -18,6 +22,7 @@ type QueuedSpeech = {
 const speechQueue: QueuedSpeech[] = [];
 let isSpeaking = false;
 let ttsFailureListener: ((text: string) => void) | null = null;
+let speechRecognitionListeners: SpeechListener[] = [];
 
 function priorityWeight(priority: SpeechPriority) {
   if (priority === "critical") return 3;
@@ -108,13 +113,6 @@ async function configureAudioSession() {
         interruptionMode: "duckOthers",
         shouldRouteThroughEarpiece: false,
       });
-      await Audio.setAudioModeAsync({
-        allowsRecordingIOS: false,
-        playsInSilentModeIOS: true,
-        staysActiveInBackground: true,
-        shouldDuckAndroid: true,
-        playThroughEarpieceAndroid: false,
-      });
       console.log("[voiceService] iOS background playback session configured");
     } else if (Platform.OS === "android") {
       await setExpoAudioModeAsync({
@@ -122,12 +120,6 @@ async function configureAudioSession() {
         shouldPlayInBackground: true,
         interruptionMode: "duckOthers",
         shouldRouteThroughEarpiece: false,
-      });
-      await Audio.setAudioModeAsync({
-        playsInSilentModeIOS: true,
-        staysActiveInBackground: true,
-        shouldDuckAndroid: true,
-        playThroughEarpieceAndroid: false,
       });
       console.log("[voiceService] Android background audio configured");
     }
@@ -190,31 +182,75 @@ export const voiceService = {
       // Unregister first to prevent multiple listeners firing
       await voiceService.cleanupListeners();
 
-      Voice.onSpeechStart = () =>
-        console.log("[voiceService] Speech recognition started");
-      Voice.onSpeechEnd = () =>
-        console.log("[voiceService] Speech recognition ended");
-      Voice.onSpeechError = (e) => {
-        console.warn("[voiceService] Speech recognition error:", e);
-        if (onError) onError(e);
-      };
-      Voice.onSpeechResults = (e) => {
-        if (e.value && e.value.length > 0) {
-          onSpeechResults(e.value[0]);
-        }
-      };
-      Voice.onSpeechPartialResults = (e) => {
-        if (e.value && e.value.length > 0 && onSpeechPartialResults) {
-          onSpeechPartialResults(e.value[0]);
-        }
-      };
-      Voice.onSpeechVolumeChanged = (e) => {
-        if (e.value !== undefined && onVolumeChanged) {
-          onVolumeChanged(e.value);
-        }
-      };
+      const permission = await ExpoSpeechRecognitionModule.requestPermissionsAsync();
+      if (!permission.granted) {
+        const error = new Error("Speech recognition permission was not granted.");
+        if (onError) onError(error);
+        return;
+      }
 
-      await Voice.start("en-US");
+      speechRecognitionListeners = [
+        ExpoSpeechRecognitionModule.addListener("start", () =>
+          console.log("[voiceService] Speech recognition started"),
+        ),
+        ExpoSpeechRecognitionModule.addListener("end", () =>
+          console.log("[voiceService] Speech recognition ended"),
+        ),
+        ExpoSpeechRecognitionModule.addListener(
+          "error",
+          (event: ExpoSpeechRecognitionErrorEvent) => {
+            if (event.error === "aborted") {
+              return;
+            }
+            console.warn("[voiceService] Speech recognition error:", event);
+            if (onError) onError(event);
+          },
+        ),
+        ExpoSpeechRecognitionModule.addListener(
+          "result",
+          (event: ExpoSpeechRecognitionResultEvent) => {
+            const transcript = event.results[0]?.transcript?.trim();
+            if (!transcript) {
+              return;
+            }
+
+            if (event.isFinal) {
+              onSpeechResults(transcript);
+            } else if (onSpeechPartialResults) {
+              onSpeechPartialResults(transcript);
+            }
+          },
+        ),
+        ExpoSpeechRecognitionModule.addListener("volumechange", (event) => {
+          if (typeof event.value === "number" && onVolumeChanged) {
+            onVolumeChanged(event.value);
+          }
+        }),
+      ];
+
+      ExpoSpeechRecognitionModule.start({
+        lang: "en-US",
+        interimResults: true,
+        maxAlternatives: 1,
+        continuous: false,
+        volumeChangeEventOptions: {
+          enabled: true,
+          intervalMillis: 150,
+        },
+        androidIntentOptions: {
+          EXTRA_SPEECH_INPUT_COMPLETE_SILENCE_LENGTH_MILLIS: 2000,
+          EXTRA_MASK_OFFENSIVE_WORDS: false,
+        },
+        contextualStrings: [
+          "Auditorium",
+          "Prayer Ground",
+          "Eateries",
+          "Bus Terminal",
+          "Bookshop",
+          "Youth Centre",
+          "big church",
+        ],
+      });
     } catch (e) {
       console.error("[voiceService] Failed to start speech recognition:", e);
       if (onError) onError(e);
@@ -226,7 +262,7 @@ export const voiceService = {
    */
   stopListening: async () => {
     try {
-      await Voice.stop();
+      ExpoSpeechRecognitionModule.stop();
     } catch (e) {
       console.error("[voiceService] Failed to stop listening:", e);
     }
@@ -237,13 +273,14 @@ export const voiceService = {
    */
   cleanupListeners: async () => {
     try {
-      await Voice.destroy();
-      Voice.onSpeechStart = () => {};
-      Voice.onSpeechEnd = () => {};
-      Voice.onSpeechError = () => {};
-      Voice.onSpeechResults = () => {};
-      Voice.onSpeechPartialResults = () => {};
-      Voice.onSpeechVolumeChanged = () => {};
+      try {
+        ExpoSpeechRecognitionModule.abort();
+      } catch {
+        // It is safe for abort to fail when no recognition session is active.
+      }
+
+      speechRecognitionListeners.forEach((listener) => listener.remove());
+      speechRecognitionListeners = [];
     } catch (e) {
       console.error("[voiceService] Failed to clean up voice listeners:", e);
     }

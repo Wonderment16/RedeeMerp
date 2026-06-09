@@ -29,6 +29,7 @@ yarn-error.*
 *.out.log
 *.err.log
 eas-failed-build.*
+eas-gradle-build.*
 
 # local assistant/tooling state
 .claude/

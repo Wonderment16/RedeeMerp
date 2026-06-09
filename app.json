@@ -16,8 +16,6 @@
         "NSSpeechRecognitionUsageDescription": "RedeeMERP uses speech recognition to parse and understand your navigation destinations.",
         "UIBackgroundModes": [
           "location",
-          "audio",
-          "location",
           "audio"
         ]
       }
@@ -25,22 +23,6 @@
     "android": {
       "package": "com.redeemerp.navigation",
       "permissions": [
-        "ACCESS_COARSE_LOCATION",
-        "ACCESS_FINE_LOCATION",
-        "ACCESS_BACKGROUND_LOCATION",
-        "FOREGROUND_SERVICE",
-        "FOREGROUND_SERVICE_LOCATION",
-        "FOREGROUND_SERVICE_MEDIA_PLAYBACK",
-        "POST_NOTIFICATIONS",
-        "WAKE_LOCK",
-        "android.permission.ACCESS_COARSE_LOCATION",
-        "android.permission.ACCESS_FINE_LOCATION",
-        "android.permission.ACCESS_BACKGROUND_LOCATION",
-        "android.permission.FOREGROUND_SERVICE",
-        "android.permission.FOREGROUND_SERVICE_LOCATION",
-        "android.permission.MODIFY_AUDIO_SETTINGS",
-        "android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK",
-        "android.permission.RECORD_AUDIO",
         "ACCESS_COARSE_LOCATION",
         "ACCESS_FINE_LOCATION",
         "ACCESS_BACKGROUND_LOCATION",
@@ -87,10 +69,13 @@
         }
       ],
       [
-        "@react-native-voice/voice",
+        "expo-speech-recognition",
         {
           "microphonePermission": "RedeeMERP uses the microphone to listen to your voice navigation commands.",
-          "speechRecognitionPermission": "RedeeMERP uses speech recognition to parse and understand your navigation destinations."
+          "speechRecognitionPermission": "RedeeMERP uses speech recognition to parse and understand your navigation destinations.",
+          "androidSpeechServicePackages": [
+            "com.google.android.googlequicksearchbox"
+          ]
         }
       ],
       [
