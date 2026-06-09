@@ -28,6 +28,7 @@ yarn-error.*
 *.log
 *.out.log
 *.err.log
+eas-failed-build.*
 
 # local assistant/tooling state
 .claude/

@@ -3,7 +3,10 @@ import { AppState, StyleSheet } from "react-native";
 import { StatusBar } from "expo-status-bar";
 import { SafeAreaProvider } from "react-native-safe-area-context";
 import { NavigationContainer, DefaultTheme } from "@react-navigation/native";
-import { createBottomTabNavigator } from "@react-navigation/bottom-tabs";
+import {
+  createBottomTabNavigator,
+  type BottomTabNavigationOptions,
+} from "@react-navigation/bottom-tabs";
 import Svg, { Path } from "react-native-svg";
 
 // Import Screens
@@ -98,15 +101,19 @@ export default function App() {
         <NavigationContainer theme={DefaultTheme}>
           <Tab.Navigator
             initialRouteName="Home"
-            screenOptions={({ route }) => ({
+            screenOptions={({
+              route,
+            }: {
+              route: { name: keyof RootTabParamList };
+            }): BottomTabNavigationOptions => ({
               headerShown: false,
               tabBarStyle: styles.tabBar,
               tabBarActiveTintColor: RCCG_RED,
               tabBarInactiveTintColor: INACTIVE_GRAY,
               tabBarLabelStyle: styles.tabBarLabel,
-              tabBarIcon: ({ color }) => (
+              tabBarIcon: ({ color }: { color: string }) => (
                 <TabIcon
-                  name={route.name as keyof RootTabParamList}
+                  name={route.name}
                   color={color}
                 />
               ),
