@@ -3,23 +3,10 @@
 # dependencies
 node_modules/
 
-# Expo
+# build output
 .expo/
 dist/
 web-build/
-expo-env.d.ts
-
-# Native
-.kotlin/
-*.orig.*
-*.jks
-*.p8
-*.p12
-*.key
-*.mobileprovision
-
-# Metro
-.metro-health-check*
 
 # debug
 npm-debug.*
@@ -37,6 +24,7 @@ eas-gradle-build.*
 
 # accidental nested Expo scaffold
 redeemerp/
+road-network.pdf
 
 # macOS
 .DS_Store

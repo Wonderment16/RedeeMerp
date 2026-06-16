@@ -1,73 +1,53 @@
-import React, { ReactNode } from "react";
-import { View, Text, StyleSheet } from "react-native";
+import { Component, type ErrorInfo, type ReactNode } from "react";
 
-interface Props {
+type ErrorBoundaryProps = {
   children: ReactNode;
-  fallback?: ReactNode;
-}
+};
 
-interface State {
-  hasError: boolean;
-  error: string | null;
-}
+type ErrorBoundaryState = {
+  error: Error | null;
+};
 
-export class ErrorBoundary extends React.Component<Props, State> {
-  constructor(props: Props) {
-    super(props);
-    this.state = { hasError: false, error: null };
+export default class ErrorBoundary extends Component<
+  ErrorBoundaryProps,
+  ErrorBoundaryState
+> {
+  state: ErrorBoundaryState = {
+    error: null,
+  };
+
+  static getDerivedStateFromError(error: Error) {
+    return { error };
   }
 
-  static getDerivedStateFromError(error: Error): State {
-    return {
-      hasError: true,
-      error: error.message || "An error occurred",
-    };
-  }
-
-  componentDidCatch(error: Error, errorInfo: React.ErrorInfo) {
-    console.error("[ErrorBoundary] Caught error:", error, errorInfo);
+  componentDidCatch(error: Error, info: ErrorInfo) {
+    console.error("[ErrorBoundary]", error, info);
   }
 
   render() {
-    if (this.state.hasError) {
+    if (this.state.error) {
       return (
-        <View style={styles.container}>
-          <Text style={styles.title}>⚠️ Something went wrong</Text>
-          <Text style={styles.error}>{this.state.error}</Text>
-          <Text style={styles.hint}>Check the console for more details</Text>
-        </View>
+        <main className="grid min-h-dvh place-items-center bg-[#FAFAFA] px-5 text-center text-[#1A1A1A]">
+          <div className="max-w-md rounded-2xl bg-white p-6 shadow-xl">
+            <h1 className="text-2xl font-extrabold text-[#8B0000]">
+              RedeeMERP hit a display error
+            </h1>
+            <p className="mt-3 text-sm leading-6 text-[#666666]">
+              The app recovered instead of showing a blank page. Refresh and use
+              Demo Mode if you are not physically at RCCG Camp.
+            </p>
+            <button
+              type="button"
+              onClick={() => window.location.reload()}
+              className="mt-5 min-h-12 rounded-xl bg-[#8B0000] px-5 text-sm font-extrabold text-white"
+            >
+              Reload App
+            </button>
+          </div>
+        </main>
       );
     }
 
     return this.props.children;
   }
 }
-
-const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    justifyContent: "center",
-    alignItems: "center",
-    backgroundColor: "#121212",
-    padding: 20,
-  },
-  title: {
-    fontSize: 24,
-    fontWeight: "bold",
-    color: "#FF5722",
-    marginBottom: 12,
-    textAlign: "center",
-  },
-  error: {
-    fontSize: 14,
-    color: "#ffffff",
-    textAlign: "center",
-    marginBottom: 16,
-    fontFamily: "monospace",
-  },
-  hint: {
-    fontSize: 12,
-    color: "#8e8e93",
-    textAlign: "center",
-  },
-});

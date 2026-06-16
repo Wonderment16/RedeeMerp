@@ -1,42 +1,41 @@
-export interface Destination {
+export type LatLng = {
+  lat: number;
+  lng: number;
+};
+
+export type DestinationCategory =
+  | "auditorium"
+  | "gate"
+  | "facility"
+  | "transit"
+  | "hostel"
+  | "office"
+  | "food";
+
+export type Destination = {
   id: string;
   name: string;
   aliases: string[];
-  coordinates: {
-    lat: number;
-    lng: number;
-  };
-  category: 'auditorium' | 'gate' | 'facility' | 'transit' | 'hostel' | 'office' | 'food';
-}
+  coordinates: LatLng;
+  category: DestinationCategory;
+};
 
-export interface NavigationInstruction {
-  id: string;
-  text: string;
-  distanceMeters: number;
-  spoken: boolean;
-  coordinate: {
-    lat: number;
-    lng: number;
-  };
-}
+export type RouteStep = {
+  maneuver: "turn-left" | "turn-right" | "straight" | "arrive" | null;
+  instruction: string;
+  startLocation: LatLng;
+  endLocation: LatLng;
+  durationSeconds: number;
+};
 
-export interface RouteState {
-  isActive: boolean;
-  origin: {
-    lat: number;
-    lng: number;
-  } | null;
-  destination: Destination | null;
-  currentInstructionIndex: number;
-  instructions: NavigationInstruction[];
-  distanceRemainingMeters: number;
-  durationRemainingSeconds: number;
-}
+export type Route = {
+  polyline: LatLng[];
+  steps: RouteStep[];
+  totalDurationSeconds: number;
+};
 
-export interface VoiceState {
-  isListening: boolean;
-  isSpeaking: boolean;
-  lastSpokenText: string | null;
-  transcript: string | null;
-  isMuted: boolean;
-}
+export type VoiceState = "idle" | "listening" | "processing";
+
+export type NavigationPhase = "idle" | "selected" | "navigating";
+
+export type LocationStatus = "idle" | "watching" | "unavailable" | "denied";

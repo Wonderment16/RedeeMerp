@@ -1,458 +1,196 @@
-import { useState, useEffect, useRef, useCallback } from "react";
-import { LatLng } from "react-native-maps";
-import { UseLocationResult } from "./useLocation";
-import { Route, calculateDistance } from "../services/routeService";
-import { guidanceEngine, GuidanceState } from "../services/guidanceEngine";
-import {
-  syncNavigationStateFromStorage,
-  startBackgroundNavigation,
-  stopBackgroundNavigation,
-} from "../services/backgroundNavigation";
-import { Destination } from "../types";
-import {
-  evaluateGpsSignal,
-  GpsSignalState,
-} from "../services/gpsResilience";
-import {
-  createRecalculationState,
-  registerRecalculationAttempt,
-  resetRecalculationPressure,
-  shouldRecalculateRoute,
-} from "../services/recalculationResilience";
-import { fetchRouteWithCache } from "../services/routeCache";
-import { voiceService } from "../services/voiceService";
+import { useCallback, useMemo, useRef, useState } from "react";
+import NoSleep from "nosleep.js";
+import { RCCG_CAMP_CENTER, RCCG_CAMP_LOCATIONS } from "../constants/locations";
+import { logNavigationEvent } from "../services/firestore";
+import { createGuidanceEngine } from "../services/guidanceEngine";
+import { calculateDistance, fetchRoute } from "../services/routeService";
+import type { Destination, LatLng, NavigationPhase, Route } from "../types";
+import { useLocation } from "./useLocation";
+import { useSpeech } from "./useSpeech";
 
-export interface NavigationState {
-  isNavigating: boolean;
-  destination: Destination | null;
-  route: Route | null;
-  routeError: string | null;
-  guidanceState: GuidanceState | null;
-  isRouteFetching: boolean;
-  isRecalculating: boolean;
-  nextInstruction: string | null;
-  gpsSignal: GpsSignalState;
-  gpsMessage: string | null;
-  isGuidancePaused: boolean;
-  offlineMessage: string | null;
-  ttsFallbackText: string | null;
-}
+const DEMO_PATH: LatLng[] = [
+  { lat: 6.878, lng: 3.732 },
+  { lat: 6.875, lng: 3.731 },
+  { lat: 6.872, lng: 3.7305 },
+  { lat: 6.869, lng: 3.73 },
+  { lat: 6.867, lng: 3.7293 },
+  { lat: 6.8655, lng: 3.7285 },
+];
 
-const DEFAULT_STATE: NavigationState = {
-  isNavigating: false,
-  destination: null,
-  route: null,
-  routeError: null,
-  guidanceState: null,
-  isRouteFetching: false,
-  isRecalculating: false,
-  nextInstruction: null,
-  gpsSignal: "ok",
-  gpsMessage: null,
-  isGuidancePaused: false,
-  offlineMessage: null,
-  ttsFallbackText: null,
+const DEMO_ROUTE: Route = {
+  polyline: DEMO_PATH,
+  totalDurationSeconds: 70,
+  steps: [
+    {
+      maneuver: "straight",
+      instruction: "Keep moving straight.",
+      startLocation: DEMO_PATH[0],
+      endLocation: DEMO_PATH[2],
+      durationSeconds: 20,
+    },
+    {
+      maneuver: "turn-right",
+      instruction: "Turn right now.",
+      startLocation: DEMO_PATH[2],
+      endLocation: DEMO_PATH[4],
+      durationSeconds: 20,
+    },
+    {
+      maneuver: "straight",
+      instruction: "Keep moving straight.",
+      startLocation: DEMO_PATH[4],
+      endLocation: DEMO_PATH[5],
+      durationSeconds: 20,
+    },
+  ],
 };
 
-/**
- * useNavigation hook combines location tracking, route generation, and voice guidance.
- */
-export function useNavigation({
-  coords,
-  heading,
-  permissionStatus,
-  error: locationError,
-  lastLocationAt,
-}: UseLocationResult) {
-  const [state, setState] = useState<NavigationState>(DEFAULT_STATE);
-  const lastProcessedLocationRef = useRef<LatLng | null>(null);
-  const gpsSignalRef = useRef<GpsSignalState>("ok");
-  const recalculationStateRef = useRef(createRecalculationState());
-  const recalculationInFlightRef = useRef(false);
+const MAX_LIVE_NAV_DISTANCE_FROM_CAMP_METERS = 2500;
 
-  const buildRouteBounds = useCallback((polyline: LatLng[]) => {
-    if (polyline.length === 0) {
-      const fallback = { latitude: 0, longitude: 0 };
-      return { northeast: fallback, southwest: fallback };
-    }
+export function useNavigation() {
+  const [selectedDestination, setSelectedDestination] = useState<Destination | null>(null);
+  const [route, setRoute] = useState<Route | null>(null);
+  const [phase, setPhase] = useState<NavigationPhase>("idle");
+  const [instruction, setInstruction] = useState("Where do you want to go?");
+  const [isLoadingRoute, setIsLoadingRoute] = useState(false);
+  const [demoMode, setDemoMode] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const logoTapCountRef = useRef(0);
+  const noSleepRef = useRef(new NoSleep());
+  const guidanceEngine = useMemo(() => createGuidanceEngine(), []);
+  const { speak, stop } = useSpeech();
+  const { location, status: locationStatus } = useLocation({
+    demoMode,
+    demoPath: DEMO_PATH,
+  });
 
-    return polyline.reduce(
-      (bounds, point) => ({
-        northeast: {
-          latitude: Math.max(bounds.northeast.latitude, point.latitude),
-          longitude: Math.max(bounds.northeast.longitude, point.longitude),
-        },
-        southwest: {
-          latitude: Math.min(bounds.southwest.latitude, point.latitude),
-          longitude: Math.min(bounds.southwest.longitude, point.longitude),
-        },
-      }),
-      {
-        northeast: { ...polyline[0] },
-        southwest: { ...polyline[0] },
-      },
-    );
+  const selectDestination = useCallback((destination: Destination) => {
+    setSelectedDestination(destination);
+    setPhase("selected");
+    setInstruction(destination.name);
+    setError(null);
   }, []);
 
-  /**
-   * Start navigation to a destination.
-   */
-  const startNavigation = useCallback(
-    async (destination: Destination) => {
-      if (!coords) {
-        console.warn("[useNavigation] Current location not available");
+  const startNavigation = useCallback(async () => {
+    if (!selectedDestination) return;
+
+    const origin = location ?? DEMO_PATH[0];
+    setIsLoadingRoute(true);
+    setError(null);
+
+    try {
+      const distanceFromCamp = calculateDistance(origin, RCCG_CAMP_CENTER);
+      if (!demoMode && distanceFromCamp > MAX_LIVE_NAV_DISTANCE_FROM_CAMP_METERS) {
+        const message =
+          "You are not at RCCG Camp yet. Tap the RCCG logo 3 times to use Demo Mode.";
+        setError(message);
+        setInstruction(message);
+        speak(message);
         return;
       }
 
-      setState((prev) => ({
-        ...prev,
-        isRouteFetching: true,
-        routeError: null,
-        destination,
-        offlineMessage: null,
-      }));
-      recalculationStateRef.current = createRecalculationState();
+      const nextRoute = await fetchRoute(origin, selectedDestination.coordinates);
+      setRoute(nextRoute);
+      setPhase("navigating");
+      await noSleepRef.current.enable();
+      guidanceEngine.reset();
+      const firstInstruction = guidanceEngine.started(nextRoute);
+      setInstruction(firstInstruction);
+      speak(firstInstruction);
+      logNavigationEvent("navigation_started", {
+        destinationId: selectedDestination.id,
+        demoMode,
+      }).catch(() => {});
+    } catch (nextError) {
+      const message =
+        nextError instanceof Error ? nextError.message : "Unable to fetch route.";
+      setError(message);
+      setInstruction("Unable to fetch route. Please check your internet.");
+    } finally {
+      setIsLoadingRoute(false);
+    }
+  }, [demoMode, guidanceEngine, location, selectedDestination, speak]);
 
-      try {
-        const origin: LatLng = {
-          latitude: coords.latitude,
-          longitude: coords.longitude,
-        };
+  const stopNavigation = useCallback(() => {
+    noSleepRef.current.disable();
+    stop();
+    setRoute(null);
+    setPhase(selectedDestination ? "selected" : "idle");
+    setInstruction(selectedDestination?.name ?? "Where do you want to go?");
+    logNavigationEvent("navigation_stopped", {
+      destinationId: selectedDestination?.id,
+      demoMode,
+    }).catch(() => {});
+  }, [selectedDestination, stop]);
 
-        const destinationLatLng: LatLng = {
-          latitude: destination.coordinates.lat,
-          longitude: destination.coordinates.lng,
-        };
-
-        const { route, usedCache } = await fetchRouteWithCache(
-          origin,
-          destinationLatLng,
-        );
-
-        if (route.steps.length === 0 || route.polylineDecoded.length === 0) {
-          throw new Error("Route found, but it did not include guidance steps.");
-        }
-
-        // Start guidance engine
-        guidanceEngine.startNavigation(
-          route.steps,
-          route.polylineDecoded,
-          destinationLatLng,
-          destination.name,
-        );
-
-        // Start background navigation (screen locked feature)
-        // This enables voice guidance even when app is backgrounded
-        const bgSuccess = await startBackgroundNavigation(
-          destination,
-          route.polylineDecoded,
-          route.steps,
-        );
-
-        if (!bgSuccess) {
-          console.warn("[useNavigation] Background navigation failed to start");
-        }
-
-        const startInstruction = await guidanceEngine.speakNavigationStarted();
-
-        setState((prev) => ({
-          ...prev,
-          isNavigating: true,
-          destination,
-          route,
-          isRouteFetching: false,
-          isRecalculating: false,
-          guidanceState: guidanceEngine.getState(),
-          nextInstruction: startInstruction?.text ?? null,
-          offlineMessage: usedCache ? "No internet. Using cached route." : null,
-        }));
-
-        console.log("[useNavigation] Navigation started");
-      } catch (err) {
-        const errorMsg =
-          err instanceof Error ? err.message : "Failed to fetch route";
-        console.error("[useNavigation] Route fetch error:", errorMsg);
-
-        setState((prev) => ({
-          ...prev,
-          isRouteFetching: false,
-          routeError: errorMsg,
-        }));
-      }
-    },
-    [coords],
-  );
-
-  /**
-   * Stop navigation.
-   */
-  const stopNavigation = useCallback(async () => {
-    guidanceEngine.stopNavigation();
-
-    // Stop background navigation (screen locked feature)
-    await stopBackgroundNavigation();
-
-    setState(DEFAULT_STATE);
+  const clearDestination = useCallback(() => {
+    noSleepRef.current.disable();
+    setSelectedDestination(null);
+    setRoute(null);
+    setPhase("idle");
+    setInstruction("Where do you want to go?");
+    setError(null);
   }, []);
 
-  const recalculateRoute = useCallback(
-    async (userLocation: LatLng, activeDestination: Destination) => {
-      if (recalculationInFlightRef.current) {
-        return;
+  const handleLogoTap = useCallback(() => {
+    logoTapCountRef.current += 1;
+    window.setTimeout(() => {
+      logoTapCountRef.current = Math.max(0, logoTapCountRef.current - 1);
+    }, 1400);
+
+    if (logoTapCountRef.current >= 3) {
+      const youthCentre = RCCG_CAMP_LOCATIONS.find((destination) => destination.id === "youth-centre");
+      setDemoMode(true);
+      logoTapCountRef.current = 0;
+      if (youthCentre) {
+        setSelectedDestination(youthCentre);
+        setRoute(DEMO_ROUTE);
+        setPhase("navigating");
+        guidanceEngine.reset();
+        noSleepRef.current.enable();
+        const firstInstruction = guidanceEngine.started(DEMO_ROUTE);
+        const message = `Demo mode activated. ${firstInstruction}`;
+        setInstruction(firstInstruction);
+        speak(message);
+        logNavigationEvent("demo_mode_started", {
+          destinationId: youthCentre.id,
+        }).catch(() => {});
       }
-
-      const attempt = registerRecalculationAttempt(
-        recalculationStateRef.current,
-      );
-
-      if (attempt.shouldPauseNavigation) {
-        await voiceService.speak(
-          "Unable to recalculate. Please retrace your steps.",
-          undefined,
-          "critical",
-        );
-        setState((prev) => ({
-          ...prev,
-          isGuidancePaused: true,
-          isRecalculating: false,
-          routeError: "Navigation paused after repeated recalculation failures.",
-        }));
-        return;
-      }
-
-      recalculationInFlightRef.current = true;
-      setState((prev) => ({
-        ...prev,
-        isRecalculating: true,
-        offlineMessage: null,
-      }));
-
-      try {
-        await voiceService.speak("Recalculating your route.", undefined, "important");
-
-        const destinationLatLng = {
-          latitude: activeDestination.coordinates.lat,
-          longitude: activeDestination.coordinates.lng,
-        };
-        const { route: nextRoute, usedCache } = await fetchRouteWithCache(
-          userLocation,
-          destinationLatLng,
-        );
-
-        if (nextRoute.steps.length === 0 || nextRoute.polylineDecoded.length === 0) {
-          throw new Error("Recalculated route did not include guidance steps.");
-        }
-
-        guidanceEngine.startNavigation(
-          nextRoute.steps,
-          nextRoute.polylineDecoded,
-          destinationLatLng,
-          activeDestination.name,
-        );
-        await startBackgroundNavigation(
-          activeDestination,
-          nextRoute.polylineDecoded,
-          nextRoute.steps,
-        );
-        resetRecalculationPressure(recalculationStateRef.current);
-
-        setState((prev) => ({
-          ...prev,
-          route: nextRoute,
-          routeError: null,
-          isRecalculating: false,
-          isGuidancePaused: false,
-          guidanceState: guidanceEngine.getState(),
-          offlineMessage: usedCache ? "No internet. Using cached route." : null,
-        }));
-      } catch (error) {
-        console.warn("[useNavigation] Recalculation failed:", error);
-        await voiceService.speak(
-          "Unable to recalculate. Please retrace your steps.",
-          undefined,
-          "critical",
-        );
-
-        setState((prev) => ({
-          ...prev,
-          isRecalculating: false,
-          routeError:
-            recalculationStateRef.current.attempts >= 3
-              ? "Navigation paused after repeated recalculation failures."
-              : "Unable to recalculate. Please retrace your steps.",
-          isGuidancePaused: recalculationStateRef.current.attempts >= 3,
-        }));
-      } finally {
-        recalculationInFlightRef.current = false;
-      }
-    },
-    [],
-  );
-
-  useEffect(() => {
-    voiceService.setTtsFailureListener((text) => {
-      setState((prev) => ({
-        ...prev,
-        ttsFallbackText: text,
-        nextInstruction: text,
-      }));
-    });
-
-    return () => voiceService.setTtsFailureListener(null);
-  }, []);
-
-  /**
-   * Rehydrate foreground state after background navigation resumes the app.
-   */
-  useEffect(() => {
-    let isMounted = true;
-
-    (async () => {
-      try {
-        const persistedState = await syncNavigationStateFromStorage();
-        if (!isMounted || !persistedState) {
-          return;
-        }
-
-        const route: Route = {
-          polyline: "",
-          polylineDecoded: persistedState.routePolyline,
-          steps: persistedState.routeSteps,
-          totalDistance: 0,
-          totalDuration: 0,
-          bounds: buildRouteBounds(persistedState.routePolyline),
-        };
-
-        setState((prev) => ({
-          ...prev,
-          isNavigating: true,
-          destination: persistedState.destination,
-          route,
-          routeError: null,
-          guidanceState: guidanceEngine.getState(),
-          isRouteFetching: false,
-        }));
-      } catch (error) {
-        console.error("[useNavigation] State re-sync failed:", error);
-      }
-    })();
-
-    return () => {
-      isMounted = false;
-    };
-  }, [buildRouteBounds]);
-
-  useEffect(() => {
-    if (!state.isNavigating) {
-      return;
     }
+  }, [guidanceEngine, speak]);
 
-    const evaluate = async () => {
-      const status = evaluateGpsSignal({
-        coords,
-        lastLocationAt,
-        previousSignal: gpsSignalRef.current,
-      });
-
-      if (status.signal === "lost" && gpsSignalRef.current !== "lost") {
-        await voiceService.speak(status.message!, undefined, "critical");
-      }
-
-      if (status.signal === "restored") {
-        await voiceService.speak(status.message!, undefined, "important");
-      }
-
-      gpsSignalRef.current =
-        status.signal === "restored" ? "ok" : status.signal;
-
-      setState((prev) => ({
-        ...prev,
-        gpsSignal: status.signal === "restored" ? "ok" : status.signal,
-        gpsMessage: status.signal === "ok" ? null : status.message,
-        isGuidancePaused: status.shouldPauseGuidance
-          ? true
-          : prev.routeError?.includes("repeated")
-            ? prev.isGuidancePaused
-            : false,
-      }));
-    };
-
-    evaluate();
-    const intervalId = setInterval(evaluate, 2000);
-    return () => clearInterval(intervalId);
-  }, [coords, lastLocationAt, state.isNavigating]);
-
-  /**
-   * Process location updates for guidance.
-   */
-  useEffect(() => {
-    if (!state.isNavigating || state.isGuidancePaused || !coords) {
-      return;
+  const processLocationTick = useCallback(() => {
+    if (!location || !route || !selectedDestination || phase !== "navigating") return;
+    const result = guidanceEngine.update(location, route, selectedDestination);
+    if (result.instruction) {
+      setInstruction(result.instruction);
+      speak(result.instruction);
     }
-
-    const userLocation: LatLng = {
-      latitude: coords.latitude,
-      longitude: coords.longitude,
-    };
-
-    // Only process if user moved at least 5 meters
-    if (
-      lastProcessedLocationRef.current &&
-      calculateDistance(lastProcessedLocationRef.current, userLocation) < 5
-    ) {
-      return;
+    if (result.arrived) {
+      noSleepRef.current.disable();
+      setPhase("selected");
+      logNavigationEvent("navigation_arrived", {
+        destinationId: selectedDestination.id,
+        demoMode,
+      }).catch(() => {});
     }
-
-    lastProcessedLocationRef.current = userLocation;
-
-    (async () => {
-      try {
-        const instruction =
-          await guidanceEngine.processLocationUpdate(userLocation);
-        const guidanceSnapshot = guidanceEngine.getState();
-        const isOffRoute = guidanceSnapshot.deviationDistance > 20;
-
-        if (
-          state.destination &&
-          shouldRecalculateRoute(recalculationStateRef.current, isOffRoute)
-        ) {
-          await recalculateRoute(userLocation, state.destination);
-          return;
-        }
-
-        if (instruction) {
-          setState((prev) => ({
-            ...prev,
-            guidanceState: guidanceSnapshot,
-            nextInstruction: instruction.text,
-          }));
-        } else {
-          setState((prev) => ({
-            ...prev,
-            guidanceState: guidanceSnapshot,
-          }));
-        }
-      } catch (error) {
-        console.error("[useNavigation] Guidance processing error:", error);
-      }
-    })();
-  }, [
-    state.isNavigating,
-    state.isGuidancePaused,
-    state.destination,
-    coords,
-    recalculateRoute,
-  ]);
+  }, [demoMode, guidanceEngine, location, phase, route, selectedDestination, speak]);
 
   return {
-    ...state,
+    selectedDestination,
+    route,
+    phase,
+    instruction,
+    isLoadingRoute,
+    location,
+    locationStatus,
+    demoMode,
+    error,
+    selectDestination,
     startNavigation,
     stopNavigation,
-    currentLocation: coords
-      ? { latitude: coords.latitude, longitude: coords.longitude }
-      : null,
-    heading,
-    locationPermissionStatus: permissionStatus,
-    locationError,
+    clearDestination,
+    handleLogoTap,
+    processLocationTick,
   };
 }
