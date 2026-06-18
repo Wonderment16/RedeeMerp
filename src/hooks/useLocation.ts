@@ -32,6 +32,21 @@ export function useLocation({ demoMode = false, demoPath = [] }: UseLocationOpti
       return;
     }
 
+    navigator.geolocation.getCurrentPosition(
+      (pos) => {
+        console.log("SUCCESS", pos.coords);
+        setLocation({
+          lat: pos.coords.latitude,
+          lng: pos.coords.longitude,
+        });
+        setStatus("watching");
+        setError(null);
+      },
+      (err) => {
+        console.log("ERROR", err.code, err.message);
+      },
+    );
+
     setStatus("watching");
     const watchId = navigator.geolocation.watchPosition(
       (position) => {

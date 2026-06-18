@@ -1,9 +1,9 @@
 import { useCallback, useMemo, useRef, useState } from "react";
 import NoSleep from "nosleep.js";
-import { RCCG_CAMP_CENTER, RCCG_CAMP_LOCATIONS } from "../constants/locations";
+import { RCCG_CAMP_LOCATIONS } from "../constants/locations";
 import { logNavigationEvent } from "../services/firestore";
 import { createGuidanceEngine } from "../services/guidanceEngine";
-import { calculateDistance, fetchRoute } from "../services/routeService";
+import { fetchRoute } from "../services/routeService";
 import type { Destination, LatLng, NavigationPhase, Route } from "../types";
 import { useLocation } from "./useLocation";
 import { useSpeech } from "./useSpeech";
@@ -45,8 +45,6 @@ const DEMO_ROUTE: Route = {
   ],
 };
 
-const MAX_LIVE_NAV_DISTANCE_FROM_CAMP_METERS = 2500;
-
 export function useNavigation() {
   const [selectedDestination, setSelectedDestination] = useState<Destination | null>(null);
   const [route, setRoute] = useState<Route | null>(null);
@@ -74,21 +72,25 @@ export function useNavigation() {
   const startNavigation = useCallback(async () => {
     if (!selectedDestination) return;
 
+    if (!location && !demoMode) {
+      const message =
+        "Location is not available. Enable GPS or tap the RCCG logo 3 times to use Demo Mode.";
+      setError(message);
+      setInstruction(message);
+      speak(message);
+      setIsLoadingRoute(false);
+      return;
+    }
+
     const origin = location ?? DEMO_PATH[0];
     setIsLoadingRoute(true);
     setError(null);
 
-    try {
-      const distanceFromCamp = calculateDistance(origin, RCCG_CAMP_CENTER);
-      if (!demoMode && distanceFromCamp > MAX_LIVE_NAV_DISTANCE_FROM_CAMP_METERS) {
-        const message =
-          "You are not at RCCG Camp yet. Tap the RCCG logo 3 times to use Demo Mode.";
-        setError(message);
-        setInstruction(message);
-        speak(message);
-        return;
-      }
+    alert(
+      `You are at ${origin.lat}, ${origin.lng}`
+    );
 
+    try {
       const nextRoute = await fetchRoute(origin, selectedDestination.coordinates);
       setRoute(nextRoute);
       setPhase("navigating");
@@ -101,6 +103,10 @@ export function useNavigation() {
         destinationId: selectedDestination.id,
         demoMode,
       }).catch(() => {});
+
+      console.log("My location:", origin);
+      console.log("Destination:", selectedDestination.coordinates);
+      console.log("Route:", nextRoute);
     } catch (nextError) {
       const message =
         nextError instanceof Error ? nextError.message : "Unable to fetch route.";

@@ -78,6 +78,7 @@ export function findNearestRouteDistance(location: LatLng, polyline: LatLng[]) {
 
 export async function fetchRoute(origin: LatLng, destination: LatLng): Promise<Route> {
   const apiKey = import.meta.env.VITE_ORS_API_KEY;
+  console.log(import.meta.env.VITE_ORS_API_KEY);
   if (!apiKey) {
     throw new Error("VITE_ORS_API_KEY is not configured.");
   }

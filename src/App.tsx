@@ -1,10 +1,12 @@
 import { useCallback, useEffect } from "react";
 import DestinationSheet from "./components/DestinationSheet";
 import LandingHome from "./components/LandingHome";
+import MapView from "./components/MapView";
 import { resolveDestination } from "./services/destinationResolver";
 import { useNavigation } from "./hooks/useNavigation";
 import { useVoice } from "./hooks/useVoice";
 import logoUrl from "../assets/rccg-logo.gif";
+
 
 export default function App() {
   const navigation = useNavigation();
@@ -62,7 +64,19 @@ export default function App() {
         </div>
       </header>
 
-      <div className="h-full">
+      <div className="relative h-full">
+        {/* <MapView
+          position={
+            navigation.location
+              ? [
+                  navigation.location.lat,
+                  navigation.location.lng,
+                ]
+              : [6.878, 3.732]
+          }
+          route={navigation.route}
+        /> */}
+
         <LandingHome
           selectedDestination={navigation.selectedDestination}
           onSelectDestination={navigation.selectDestination}

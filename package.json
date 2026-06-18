@@ -5,12 +5,15 @@
   "dependencies": {
     "@google/generative-ai": "^0.24.1",
     "firebase": "^12.7.0",
+    "leaflet": "^1.9.4",
     "nosleep.js": "^0.12.0",
     "react": "19.2.3",
-    "react-dom": "19.2.3"
+    "react-dom": "19.2.3",
+    "react-leaflet": "^5.0.0"
   },
   "devDependencies": {
     "@tailwindcss/vite": "^4.1.18",
+    "@types/leaflet": "^1.9.21",
     "@types/react": "~19.2.2",
     "@types/react-dom": "^19.2.3",
     "@vitejs/plugin-react": "^5.1.1",
