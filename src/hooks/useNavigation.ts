@@ -90,6 +90,8 @@ export function useNavigation() {
       `You are at ${origin.lat}, ${origin.lng}`
     );
 
+    console.log("START LOCATION SENT TO ORS", location);
+    console.log("DESTINATION SENT TO ORS", selectedDestination.coordinates);    
     try {
       const nextRoute = await fetchRoute(origin, selectedDestination.coordinates);
       setRoute(nextRoute);

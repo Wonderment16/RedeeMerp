@@ -3,10 +3,10 @@ import type { Destination, LatLng } from "../types";
 export const RCCG_CAMP_CENTER: LatLng = { lat: 6.827482, lng: 3.462833 };
 
 export const RCCG_CAMP_BOUNDS = {
-  north: 6.885,
-  south: 6.855,
-  east: 3.738,
-  west: 3.72,
+  north: 6.83,
+  south: 6.79,
+  east: 3.47,
+  west: 3.44,
 };
 
 export const RCCG_CAMP_LOCATIONS: Destination[] = [
@@ -86,13 +86,6 @@ export const RCCG_CAMP_LOCATIONS: Destination[] = [
     aliases: ["protocol parking", "vip park", "vip car park", "protocol"],
     coordinates: { lat: 6.79936899137386, lng: 3.4472845851251117 },
     category: "facility",
-  },
-  {
-    id: "holiness-road",
-    name: "Holiness Road",
-    aliases: ["holiness", "holiness rd"],
-    coordinates: { lat: 6.8712, lng: 3.7276 },
-    category: "transit",
   },
   {
     id: "canaanland-market",
