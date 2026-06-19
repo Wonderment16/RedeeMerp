@@ -1,4 +1,5 @@
 import type { LatLng, Route, RouteStep } from "../types";
+import { isWithinCampBounds } from "../constants/locations";
 
 type OrsCoordinate = [number, number];
 
@@ -71,17 +72,64 @@ export function calculateDistance(from: LatLng, to: LatLng) {
   return radius * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
 }
 
+function squaredDistanceToSegment(location: LatLng, segmentStart: LatLng, segmentEnd: LatLng) {
+  const latRad = (location.lat * Math.PI) / 180;
+  const cosLat = Math.cos(latRad);
+  const localX = (point: LatLng) => ((point.lng - location.lng) * Math.PI) / 180 * cosLat;
+  const localY = (point: LatLng) => ((point.lat - location.lat) * Math.PI) / 180;
+
+  const ax = localX(segmentStart);
+  const ay = localY(segmentStart);
+  const bx = localX(segmentEnd);
+  const by = localY(segmentEnd);
+  const dx = bx - ax;
+  const dy = by - ay;
+  const segmentLengthSquared = dx * dx + dy * dy;
+
+  if (segmentLengthSquared === 0) {
+    return ax * ax + ay * ay;
+  }
+
+  const t = Math.max(0, Math.min(1, -(ax * dx + ay * dy) / segmentLengthSquared));
+  const closestX = ax + dx * t;
+  const closestY = ay + dy * t;
+  return closestX * closestX + closestY * closestY;
+}
+
 export function findNearestRouteDistance(location: LatLng, polyline: LatLng[]) {
   if (polyline.length === 0) return Number.POSITIVE_INFINITY;
-  return Math.min(...polyline.map((point) => calculateDistance(location, point)));
+
+  if (polyline.length === 1) {
+    return calculateDistance(location, polyline[0]);
+  }
+
+  const minSquared = polyline.slice(1).reduce((min, point, index) => {
+    const segmentStart = polyline[index];
+    const segmentEnd = point;
+    const squared = squaredDistanceToSegment(location, segmentStart, segmentEnd);
+    return Math.min(min, squared);
+  }, Number.POSITIVE_INFINITY);
+
+  return Math.sqrt(minSquared) * 6371000;
 }
 
 export async function fetchRoute(origin: LatLng, destination: LatLng): Promise<Route> {
   const apiKey = import.meta.env.VITE_ORS_API_KEY;
-  console.log(import.meta.env.VITE_ORS_API_KEY);
   if (!apiKey) {
     throw new Error("VITE_ORS_API_KEY is not configured.");
   }
+
+  if (!isWithinCampBounds(origin) || !isWithinCampBounds(destination)) {
+    throw new Error("Route origin or destination is outside the RCCG camp bounds.");
+  }
+
+  const requestBody = {
+    coordinates: [
+      [origin.lng, origin.lat],
+      [destination.lng, destination.lat],
+    ],
+    instructions: true,
+  };
 
   const response = await fetch(
     "https://api.openrouteservice.org/v2/directions/foot-walking/geojson",
@@ -92,13 +140,7 @@ export async function fetchRoute(origin: LatLng, destination: LatLng): Promise<R
         "Content-Type": "application/json",
         Accept: "application/geo+json, application/json",
       },
-      body: JSON.stringify({
-        coordinates: [
-          [origin.lng, origin.lat],
-          [destination.lng, destination.lat],
-        ],
-        instructions: true,
-      }),
+      body: JSON.stringify(requestBody),
     },
   );
 

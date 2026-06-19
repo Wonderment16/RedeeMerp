@@ -9,6 +9,15 @@ export const RCCG_CAMP_BOUNDS = {
   west: 3.44,
 };
 
+export function isWithinCampBounds(location: LatLng) {
+  return (
+    location.lat >= RCCG_CAMP_BOUNDS.south &&
+    location.lat <= RCCG_CAMP_BOUNDS.north &&
+    location.lng >= RCCG_CAMP_BOUNDS.west &&
+    location.lng <= RCCG_CAMP_BOUNDS.east
+  );
+}
+
 export const RCCG_CAMP_LOCATIONS: Destination[] = [
   {
     id: "main-auditorium",

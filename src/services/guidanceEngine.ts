@@ -3,9 +3,9 @@ import { calculateDistance, findNearestRouteDistance } from "./routeService";
 
 const MIN_REPEAT_INTERVAL = 8000;
 const REASSURANCE_INTERVAL = 20000;
-const OFF_ROUTE_THRESHOLD = 20;
+const OFF_ROUTE_THRESHOLD = 30;
 const ALMOST_THERE_THRESHOLD = 50;
-const ARRIVAL_THRESHOLD = 10;
+const ARRIVAL_THRESHOLD = 25;
 
 type GuidanceMemory = {
   lastInstruction: string | null;

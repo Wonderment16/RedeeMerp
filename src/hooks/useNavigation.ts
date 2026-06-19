@@ -1,9 +1,9 @@
 import { useCallback, useMemo, useRef, useState } from "react";
 import NoSleep from "nosleep.js";
-import { RCCG_CAMP_LOCATIONS } from "../constants/locations";
+import { RCCG_CAMP_LOCATIONS, isWithinCampBounds } from "../constants/locations";
 import { logNavigationEvent } from "../services/firestore";
 import { createGuidanceEngine } from "../services/guidanceEngine";
-import { fetchRoute } from "../services/routeService";
+import { fetchRoute, findNearestRouteDistance } from "../services/routeService";
 import type { Destination, LatLng, NavigationPhase, Route } from "../types";
 import { useLocation } from "./useLocation";
 import { useSpeech } from "./useSpeech";
@@ -45,6 +45,9 @@ const DEMO_ROUTE: Route = {
   ],
 };
 
+const OFF_ROUTE_DISTANCE_THRESHOLD = 30;
+const REROUTE_COOLDOWN_MS = 12000;
+
 export function useNavigation() {
   const [selectedDestination, setSelectedDestination] = useState<Destination | null>(null);
   const [route, setRoute] = useState<Route | null>(null);
@@ -54,10 +57,12 @@ export function useNavigation() {
   const [demoMode, setDemoMode] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const logoTapCountRef = useRef(0);
+  const rerouteCooldownRef = useRef(0);
+  const rerouteInProgressRef = useRef(false);
   const noSleepRef = useRef(new NoSleep());
   const guidanceEngine = useMemo(() => createGuidanceEngine(), []);
   const { speak, stop } = useSpeech();
-  const { location, status: locationStatus } = useLocation({
+  const { location, status: locationStatus, error: locationError } = useLocation({
     demoMode,
     demoPath: DEMO_PATH,
   });
@@ -86,12 +91,16 @@ export function useNavigation() {
     setIsLoadingRoute(true);
     setError(null);
 
-    alert(
-      `You are at ${origin.lat}, ${origin.lng}`
-    );
+    if (!demoMode && !isWithinCampBounds(origin)) {
+      const message =
+        "Your location is outside the RCCG camp boundary. Navigation is available only within camp.";
+      setError(message);
+      setInstruction(message);
+      speak(message);
+      setIsLoadingRoute(false);
+      return;
+    }
 
-    console.log("START LOCATION SENT TO ORS", location);
-    console.log("DESTINATION SENT TO ORS", selectedDestination.coordinates);    
     try {
       const nextRoute = await fetchRoute(origin, selectedDestination.coordinates);
       setRoute(nextRoute);
@@ -105,10 +114,6 @@ export function useNavigation() {
         destinationId: selectedDestination.id,
         demoMode,
       }).catch(() => {});
-
-      console.log("My location:", origin);
-      console.log("Destination:", selectedDestination.coordinates);
-      console.log("Route:", nextRoute);
     } catch (nextError) {
       const message =
         nextError instanceof Error ? nextError.message : "Unable to fetch route.";
@@ -167,13 +172,59 @@ export function useNavigation() {
     }
   }, [guidanceEngine, speak]);
 
-  const processLocationTick = useCallback(() => {
+  const processLocationTick = useCallback(async () => {
     if (!location || !route || !selectedDestination || phase !== "navigating") return;
+
+    const distanceFromRoute = findNearestRouteDistance(location, route.polyline);
     const result = guidanceEngine.update(location, route, selectedDestination);
+    const now = Date.now();
+    const timeSinceLastReroute = now - rerouteCooldownRef.current;
+
+    const shouldReroute =
+      result.offRoute &&
+      distanceFromRoute > OFF_ROUTE_DISTANCE_THRESHOLD &&
+      !rerouteInProgressRef.current &&
+      timeSinceLastReroute >= REROUTE_COOLDOWN_MS;
+
+    if (shouldReroute) {
+      rerouteInProgressRef.current = true;
+      rerouteCooldownRef.current = now;
+      setIsLoadingRoute(true);
+      setError(null);
+
+      try {
+        const reroutedRoute = await fetchRoute(location, selectedDestination.coordinates);
+        setRoute(reroutedRoute);
+        guidanceEngine.reset();
+        const rerouteInstruction = guidanceEngine.started(reroutedRoute);
+        setInstruction(`Recalculated route. ${rerouteInstruction}`);
+        speak(`Recalculating route. ${rerouteInstruction}`);
+        logNavigationEvent("navigation_rerouted", {
+          destinationId: selectedDestination.id,
+          distanceFromRoute,
+          demoMode,
+        }).catch(() => {});
+      } catch (nextError) {
+        const message =
+          nextError instanceof Error ? nextError.message : "Unable to recalculate route.";
+        setError(message);
+        setInstruction("Unable to update route. Please check your internet.");
+      } finally {
+        setIsLoadingRoute(false);
+        rerouteInProgressRef.current = false;
+      }
+      return;
+    }
+
+    if (result.offRoute) {
+      // Off-route detected, but reroute cooldown or in-progress state will defer recalculation.
+    }
+
     if (result.instruction) {
       setInstruction(result.instruction);
       speak(result.instruction);
     }
+
     if (result.arrived) {
       noSleepRef.current.disable();
       setPhase("selected");
@@ -192,6 +243,7 @@ export function useNavigation() {
     isLoadingRoute,
     location,
     locationStatus,
+    locationError,
     demoMode,
     error,
     selectDestination,

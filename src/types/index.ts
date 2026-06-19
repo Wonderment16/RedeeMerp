@@ -1,6 +1,7 @@
 export type LatLng = {
   lat: number;
   lng: number;
+  accuracy?: number;
 };
 
 export type DestinationCategory =

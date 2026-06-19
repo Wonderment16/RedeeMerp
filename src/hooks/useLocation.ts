@@ -34,26 +34,32 @@ export function useLocation({ demoMode = false, demoPath = [] }: UseLocationOpti
 
     navigator.geolocation.getCurrentPosition(
       (pos) => {
-        console.log("SUCCESS", pos.coords);
-        setLocation({
+        const nextLocation = {
           lat: pos.coords.latitude,
           lng: pos.coords.longitude,
-        });
+          accuracy: pos.coords.accuracy,
+        };
+        setLocation(nextLocation);
         setStatus("watching");
         setError(null);
       },
       (err) => {
-        console.log("ERROR", err.code, err.message);
+        setStatus(
+          err.code === err.PERMISSION_DENIED ? "denied" : "unavailable",
+        );
+        setError(err.message || "Unable to access location.");
       },
     );
 
     setStatus("watching");
     const watchId = navigator.geolocation.watchPosition(
       (position) => {
-        setLocation({
+        const nextLocation = {
           lat: position.coords.latitude,
           lng: position.coords.longitude,
-        });
+          accuracy: position.coords.accuracy,
+        };
+        setLocation(nextLocation);
         setStatus("watching");
         setError(null);
       },

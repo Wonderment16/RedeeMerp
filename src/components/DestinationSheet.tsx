@@ -65,7 +65,7 @@ export default function DestinationSheet({
   }, [query]);
 
   return (
-    <section className="fixed inset-x-0 bottom-0 z-20 rounded-t-[28px] border border-white/70 bg-white px-4 pb-[calc(16px+env(safe-area-inset-bottom))] pt-3 shadow-[0_-16px_44px_rgba(0,0,0,0.18)] md:left-1/2 md:max-w-3xl md:-translate-x-1/2 md:bottom-5 md:rounded-[28px]">
+    <section className="fixed inset-x-0 bottom-0 z-50 rounded-t-[28px] border border-white/70 bg-white/95 backdrop-blur-xl px-4 pb-[calc(16px+env(safe-area-inset-bottom))] pt-3 shadow-[0_-16px_44px_rgba(0,0,0,0.18)] md:left-1/2 md:max-w-3xl md:-translate-x-1/2 md:bottom-5 md:rounded-[28px]">
       <div className="mx-auto mb-3 h-1.5 w-12 rounded-full bg-[#E6E0E0]" />
 
       {phase === "idle" ? (

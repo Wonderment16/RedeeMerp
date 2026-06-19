@@ -59,7 +59,7 @@ export default function LandingHome({
   const visibleSuggestions = query ? searchResults : suggestedDestinations;
 
   return (
-    <section className="h-full overflow-y-auto bg-[#FAFAFA] px-4 pb-72 pt-24 md:pb-64 md:pt-32">
+    <section className="min-h-screen overflow-y-auto bg-white px-4 pb-72 pt-24 md:pb-64 md:pt-32">
       <div className="mx-auto w-full max-w-5xl">
         <div className="rounded-[28px] border border-[#8B0000]/10 bg-white p-5 shadow-[0_16px_48px_rgba(0,0,0,0.08)] md:p-8">
           <p className="text-xs font-black uppercase tracking-[0.18em] text-[#8B0000]">

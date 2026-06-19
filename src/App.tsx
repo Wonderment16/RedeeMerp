@@ -23,6 +23,10 @@ export default function App() {
   );
 
   const voice = useVoice({ onTranscript: handleTranscript });
+  const locationAccuracyWarning =
+    navigation.location?.accuracy != null && navigation.location.accuracy > 50;
+  const isNavigationMode = navigation.phase === "navigating";
+  const showMap = isNavigationMode;
 
   useEffect(() => {
     const interval = window.setInterval(navigation.processLocationTick, 2000);
@@ -30,8 +34,8 @@ export default function App() {
   }, [navigation.processLocationTick]);
 
   return (
-    <main className="relative h-dvh overflow-hidden bg-[#FAFAFA] text-[#1A1A1A]">
-      <header className="absolute inset-x-0 top-0 z-20 flex min-h-[72px] items-center justify-between border-b border-[#8B0000]/10 bg-white/95 px-4 py-2 shadow-[0_8px_24px_rgba(0,0,0,0.08)] backdrop-blur md:left-1/2 md:top-4 md:w-[min(940px,calc(100%-32px))] md:-translate-x-1/2 md:rounded-2xl md:border">
+    <main className="relative min-h-screen bg-[#FAFAFA] text-[#1A1A1A]">
+      <header className="absolute inset-x-0 top-0 z-40 flex min-h-[72px] items-center justify-between border-b border-[#8B0000]/10 bg-white/95 px-4 py-2 shadow-[0_8px_24px_rgba(0,0,0,0.08)] backdrop-blur md:left-1/2 md:top-4 md:w-[min(940px,calc(100%-32px))] md:-translate-x-1/2 md:rounded-2xl md:border">
         <button
           type="button"
           onClick={navigation.handleLogoTap}
@@ -64,28 +68,49 @@ export default function App() {
         </div>
       </header>
 
-      <div className="relative h-full">
-        {/* <MapView
-          position={
-            navigation.location
-              ? [
-                  navigation.location.lat,
-                  navigation.location.lng,
-                ]
-              : [6.878, 3.732]
-          }
-          route={navigation.route}
-        /> */}
+      <div className="relative min-h-screen">
+        {showMap ? (
+          <div className="absolute inset-0 z-0 overflow-hidden">
+            <MapView
+              position={
+                navigation.location
+                  ? [
+                      navigation.location.lat,
+                      navigation.location.lng,
+                    ]
+                  : [6.878, 3.732]
+              }
+              route={navigation.route}
+              destination={navigation.selectedDestination}
+            />
+          </div>
+        ) : null}
 
-        <LandingHome
-          selectedDestination={navigation.selectedDestination}
-          onSelectDestination={navigation.selectDestination}
-        />
+        <div className="relative z-10">
+          {!isNavigationMode ? (
+            <LandingHome
+              selectedDestination={navigation.selectedDestination}
+              onSelectDestination={navigation.selectDestination}
+            />
+          ) : null}
+        </div>
       </div>
 
       {navigation.locationStatus === "denied" ? (
         <div className="absolute left-4 right-4 top-24 z-30 rounded-2xl border border-[#8B0000]/10 bg-white px-4 py-3 text-sm font-bold text-[#8B0000] shadow-lg md:left-1/2 md:w-[min(720px,calc(100%-32px))] md:-translate-x-1/2">
           Location permission denied. Enable location in Chrome to use live navigation.
+        </div>
+      ) : null}
+
+      {navigation.locationError ? (
+        <div className="absolute left-4 right-4 top-24 z-30 rounded-2xl border border-[#8B0000]/10 bg-white px-4 py-3 text-sm font-bold text-[#8B0000] shadow-lg md:left-1/2 md:w-[min(720px,calc(100%-32px))] md:-translate-x-1/2">
+          {navigation.locationError}
+        </div>
+      ) : null}
+
+      {locationAccuracyWarning ? (
+        <div className="absolute left-4 right-4 top-40 z-30 rounded-2xl border border-[#8B0000]/10 bg-white px-4 py-3 text-sm font-semibold text-[#8B0000] shadow-lg md:left-1/2 md:w-[min(720px,calc(100%-32px))] md:-translate-x-1/2">
+          GPS signal is weak. Navigation may be less accurate.
         </div>
       ) : null}
 
